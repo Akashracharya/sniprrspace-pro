@@ -1,18 +1,73 @@
-import React, { useState } from "react";
-import { evalTS } from "../lib/utils/bolt"; 
+import React, { useState, useEffect } from "react";
+import ReactDOM from "react-dom/client";
+import { evalTS, selectFolder } from "../lib/utils/bolt"; // Imported selectFolder utility
+import "./main.scss";
 
 export default function IndexReact() {
   const [activeTab, setActiveTab] = useState<"MAIN" | "SFX" | "GFX" | "PRESETS">("MAIN");
   const [isHoverPlayEnabled, setIsHoverPlayEnabled] = useState<boolean>(false);
-  const [currentPath] = useState<string>("Select a folder...");
+  
+  // Manage the selected asset path via React state
+  const [currentPath, setCurrentPath] = useState<string>("Click to select a folder...");
 
+  // --- 1. CORE SYSTEM ACTIONS ---
+  
+  // Opens a native OS file dialog window to pick a directory
+  const handleChooseFolder = () => {
+    // Starting directory default, prompt message, and callback function
+    selectFolder("", "Select your Sniprr Assets Folder", (chosenFolder) => {
+      if (chosenFolder) {
+        setCurrentPath(chosenFolder);
+        localStorage.setItem("sniprr_last_path", chosenFolder); // Remembers it when AE restarts
+      }
+    });
+  };
+
+  // Triggers your custom ExtendScript frame-saver script
+  const handleSnapshotClick = (e: React.MouseEvent) => {
+    if (currentPath.includes("Click to select")) {
+      alert("Please select a valid destination folder first by clicking on the path bar.");
+      return;
+    }
+    
+    // Shift+Click changes folder, normal Click saves frame
+    if (e.shiftKey) {
+      handleChooseFolder();
+    } else {
+      // Calls your export function saveSnapshot(folderPath) inside src/jsx/index.ts
+      evalTS("saveSnapshot" as any, currentPath as any).then((savedPath: any) => {
+        if (savedPath && !savedPath.startsWith("ERROR")) {
+          console.log("Snapshot successfully written to: " + savedPath);
+        } else if (savedPath) {
+          alert(savedPath);
+        }
+      });
+    }
+  };
+
+  const handlePasteClick = (e: React.MouseEvent) => {
+    // If shift key is held down, we let our backend layer know
+    const isShiftHeld = e.shiftKey;
+    alert(`Paste active! (Shift Held: ${isShiftHeld}). In the next step, we will hook this up to map items into your timeline.`);
+  };
+
+  // --- 2. EXPRESSIONS & UTILITIES ---
   const handleExpressionClick = (exprType: string) => {
-    evalTS("applyExpression", exprType);
+    evalTS("applyExpression" as any, exprType as any);
   };
 
   const handlePurgeClick = () => {
-    evalTS("purgeAllCaches");
+    evalTS("purgeAllCaches" as any);
   };
+
+  // --- 3. PERSISTENCE LAYER ---
+  // Automatically loads your last used folder pathway when the panel boots up
+  useEffect(() => {
+    const savedPath = localStorage.getItem("sniprr_last_path");
+    if (savedPath) {
+      setCurrentPath(savedPath);
+    }
+  }, []);
 
   return (
     <div className="app-container">
@@ -20,8 +75,20 @@ export default function IndexReact() {
       <header className="top-bar">
         <span className="app-logo-text" style={{ fontWeight: 900, color: "#fff", fontSize: "12px", letterSpacing: "1px" }}>SniprrSPACE</span>
         <div className="top-action-dock">
-          <button className="mini-btn" id="btnSnap" title="Save Snapshot">SNAP</button>
-          <button className="mini-btn" id="btnPaste" title="Paste to Project">PASTE</button>
+          <button 
+            className="mini-btn" 
+            onClick={handleSnapshotClick} 
+            title="Click: Save Snapshot to Current Path&#10;Shift+Click: Choose Folder Location"
+          >
+            SNAP
+          </button>
+          <button 
+            className="mini-btn" 
+            onClick={handlePasteClick} 
+            title="Click: Paste to Project Panel&#10;Shift+Click: Place on Active Timeline Track"
+          >
+            PASTE
+          </button>
           <button className="mini-btn" onClick={handlePurgeClick} title="Purge All Memory & Disk Cache">PRG</button>
         </div>
       </header>
@@ -68,7 +135,15 @@ export default function IndexReact() {
         {activeTab !== "MAIN" && (
           <div id="browserView">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div className="info-bar" style={{ fontSize: "10px", color: "#aaa" }}>{currentPath}</div>
+              {/* Clickable Info Path Bar */}
+              <div 
+                className="info-bar" 
+                onClick={handleChooseFolder}
+                style={{ fontSize: "10px", color: "#aaa", cursor: "pointer", textDecoration: "underline", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}
+                title="Click here to change targeted directory folder"
+              >
+                {currentPath}
+              </div>
               {activeTab === "SFX" && (
                 <button 
                   className={`tool-btn ${isHoverPlayEnabled ? "active-toggle" : ""}`}
@@ -79,6 +154,7 @@ export default function IndexReact() {
                 </button>
               )}
             </div>
+            
             <div style={{ fontSize: "11px", color: "#666", textAlign: "center", marginTop: "30px" }}>
               {activeTab} Asset Stream Grid
             </div>
@@ -88,3 +164,9 @@ export default function IndexReact() {
     </div>
   );
 }
+
+ReactDOM.createRoot(document.getElementById("app")!).render(
+  <React.StrictMode>
+    <IndexReact />
+  </React.StrictMode>
+);
